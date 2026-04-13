@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8" />
+    <style>
+      body{font-family:Arial,sans-serif;background:#f6f8fc;color:#1f2937;margin:0;padding:16px}
+      .card{background:#fff;border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+      table{width:100%;border-collapse:collapse} th,td{border-bottom:1px solid #eef2f7;padding:8px;text-align:left}
+      .kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+      .kv{border:1px solid #e6eaf2;border-radius:10px;padding:10px;background:#fafbff}
+      .k{font-size:12px;color:#607d8b}.v{font-weight:700;font-size:18px}
+      .btn{padding:8px 12px;border:none;border-radius:8px;cursor:pointer;font-weight:600}
+      .btn.primary{background:#1a73e8;color:#fff}
+      .btn.danger{background:#d93025;color:#fff}
+    </style>
+  </head>
+  <body>
+    <div class="card" id="header"></div>
+    <div class="card">
+      <h3>Маршруты грузов</h3>
+      <table><thead><tr><th>Маршрут</th><th>Цена</th><th>Оплата</th></tr></thead><tbody id="routes"></tbody></table>
+    </div>
+    <div class="card"><h3>Финансы</h3><div class="kpi" id="totals"></div></div>
+    <div class="card">
+      <button class="btn primary" onclick="editTrip()">Редактировать</button>
+      <button class="btn danger" onclick="deleteTrip()">Удалить</button>
+    </div>
+
+    <script>
+      const tripId = '<?= tripId ?>';
+      const currency = new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:2});
+      let trip;
+
+      function money(v){return currency.format(Number(v||0));}
+
+      function load(){
+        google.script.run.withSuccessHandler(data=>{
+          trip = data;
+          if(!trip){document.body.innerHTML='Поездка не найдена'; return;}
+
+          document.getElementById('header').innerHTML = `
+            <h2 style="margin:0 0 8px">#${trip.id} — ${trip.mainRoute}</h2>
+            <div><b>Дата:</b> ${trip.date}</div>
+            <div><b>Километраж:</b> ${trip.km} км | <b>Холостой:</b> ${trip.emptyKm} км</div>
+            <div><b>Комментарий:</b> ${trip.comment || '-'}</div>`;
+
+          document.getElementById('routes').innerHTML = (trip.routes||[]).map(r=>
+            `<tr><td>${r.route}</td><td>${money(r.price)}</td><td>${r.paymentType}</td></tr>`).join('');
+
+          const t = trip.totals;
+          const cells = [
+            ['Выручка', t.totalRevenue], ['Топливо', t.fuel], ['Остаток', t.net],
+            ['Лизинг', t.leasing], ['Ремонт', t.repair], ['Водитель', t.driver],
+            ['Налог', t.tax], ['Итог компании', t.companyTotal], ['Итог водителя', t.driverTotal]
+          ];
+          document.getElementById('totals').innerHTML = cells.map(c=>`<div class="kv"><div class="k">${c[0]}</div><div class="v">${money(c[1])}</div></div>`).join('');
+        }).getTripById(tripId);
+      }
+
+      function editTrip(){ google.script.run.showTripFormDialog(tripId); }
+      function deleteTrip(){
+        if(!confirm('Удалить поездку #' + tripId + '?')) return;
+        google.script.run.withSuccessHandler(()=>google.script.host.close()).deleteTrip(tripId);
+      }
+
+      load();
+    </script>
+  </body>
+</html>
