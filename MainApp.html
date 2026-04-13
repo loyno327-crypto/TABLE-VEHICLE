@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8" />
+    <style>
+      body {font-family: Arial, sans-serif; margin:0; background:#f5f7fb; color:#263238;}
+      .topbar{display:flex; gap:8px; padding:12px; background:#fff; border-bottom:1px solid #dfe3eb; position:sticky; top:0;}
+      .tab{border:1px solid #c9d2e3; background:#fff; border-radius:8px; padding:8px 12px; cursor:pointer; font-weight:600;}
+      .tab.active{background:#1a73e8; color:#fff; border-color:#1a73e8}
+      .view{display:none; padding:16px;}
+      .view.active{display:block;}
+      .card{background:#fff; border-radius:12px; padding:16px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.08)}
+      .grid{display:grid; grid-template-columns:repeat(4,1fr); gap:10px;}
+      input,select,textarea{width:100%; box-sizing:border-box; padding:8px; border:1px solid #c8d0dc; border-radius:8px;}
+      .btn{padding:8px 12px; border:none; border-radius:8px; cursor:pointer; font-weight:600;}
+      .btn.primary{background:#1a73e8;color:#fff}
+      .btn.danger{background:#d93025;color:#fff}
+      table{width:100%; border-collapse:collapse;}
+      th,td{border-bottom:1px solid #eef1f5; padding:8px; text-align:left; font-size:13px}
+      th{background:#fafbfd; position:sticky; top:0;}
+      .row-actions{display:flex; gap:8px;}
+      .metrics{display:grid; grid-template-columns:repeat(4,1fr); gap:12px;}
+      .metric{background:#fff; border-radius:12px; padding:12px; border:1px solid #e6eaf2;}
+      .metric .k{font-size:12px;color:#607d8b}.metric .v{font-size:20px;font-weight:700}
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <button class="tab" data-view="list">Список заявок</button>
+      <button class="tab" data-view="form">Внести поездку</button>
+      <button class="tab" data-view="dashboard">Дашборд</button>
+      <button class="tab" data-view="settings">Настройки</button>
+    </div>
+
+    <div id="view-list" class="view">
+      <div class="card grid">
+        <div><label>Поиск по маршруту</label><input id="fQuery" placeholder="Например: Казань"></div>
+        <div><label>С даты</label><input id="fFrom" type="date"></div>
+        <div><label>По дату</label><input id="fTo" type="date"></div>
+        <div><label>Вид оплаты</label><select id="fPayment"></select></div>
+      </div>
+      <div class="card">
+        <button class="btn primary" onclick="loadTrips()">Обновить</button>
+        <table>
+          <thead><tr><th>ID</th><th>Дата</th><th>Маршрут</th><th>Сумма</th><th>Км</th><th>Прибыль компании</th><th>Водителю</th><th></th></tr></thead>
+          <tbody id="tripsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="view-form" class="view">
+      <div class="card grid">
+        <div><label>Дата</label><input id="tripDate" type="date"></div>
+        <div><label>Основной маршрут</label><input id="tripMainRoute" placeholder="Ульяновск - Казань - Ульяновск"></div>
+        <div><label>Общий километраж</label><input id="tripKm" type="number" min="0"></div>
+        <div><label>Холостой пробег (км)</label><input id="tripEmptyKm" type="number" min="0" value="0"></div>
+      </div>
+      <div class="card">
+        <label>Комментарий</label>
+        <textarea id="tripComment" rows="2"></textarea>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h3 style="margin:0">Маршруты грузов</h3>
+          <button class="btn" onclick="addRouteRow()">Добавить маршрут</button>
+        </div>
+        <table>
+          <thead><tr><th>Маршрут</th><th>Цена</th><th>Вид оплаты</th><th></th></tr></thead>
+          <tbody id="routesBody"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div id="preview"></div>
+        <div class="row-actions">
+          <button class="btn" onclick="previewCalc()">Пересчитать</button>
+          <button class="btn primary" onclick="saveTrip()">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-dashboard" class="view">
+      <div class="card grid">
+        <div><label>С даты</label><input id="dFrom" type="date"></div>
+        <div><label>По дату</label><input id="dTo" type="date"></div>
+        <div style="align-self:end"><button class="btn primary" onclick="loadDashboard()">Обновить дашборд</button></div>
+      </div>
+      <div class="metrics" id="dashboardMetrics"></div>
+    </div>
+
+    <div id="view-settings" class="view">
+      <div class="card" id="settingsContainer"></div>
+      <div class="card"><button class="btn primary" onclick="saveSettings()">Сохранить настройки</button></div>
+    </div>
+
+    <script>
+      const state = { paymentTypes: [], editTripId: '<?= editTripId || "" ?>' };
+      const CURRENCY = new Intl.NumberFormat('ru-RU', { style:'currency', currency:'RUB', maximumFractionDigits:2 });
+
+      function init(){
+        document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click', ()=>activateView(btn.dataset.view)));
+        google.script.run.withSuccessHandler(types=>{
+          state.paymentTypes = [''].concat(types);
+          const html = state.paymentTypes.map(t=>`<option value="${t}">${t || 'Все'}</option>`).join('');
+          document.getElementById('fPayment').innerHTML = html;
+          activateView('<?= initialView || "list" ?>');
+          if (state.editTripId) loadTripToForm(state.editTripId);
+          else addRouteRow();
+          loadSettings();
+        }).getPaymentTypes();
+      }
+
+      function activateView(v){
+        document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+        document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+        document.getElementById('view-'+v).classList.add('active');
+        document.querySelector(`.tab[data-view="${v}"]`).classList.add('active');
+        if(v==='list') loadTrips();
+        if(v==='dashboard') loadDashboard();
+      }
+
+      function money(v){ return CURRENCY.format(Number(v||0)); }
+      function esc(s){ return String(s||'').replace(/[&<>'"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c])); }
+
+      function loadTrips(){
+        const filters = {
+          query: document.getElementById('fQuery').value,
+          from: document.getElementById('fFrom').value,
+          to: document.getElementById('fTo').value,
+          paymentType: document.getElementById('fPayment').value
+        };
+        google.script.run.withSuccessHandler(rows=>{
+          const body = document.getElementById('tripsBody');
+          body.innerHTML = rows.map(r=>`<tr>
+            <td>${r.id}</td><td>${esc(r.date)}</td><td>${esc(r.mainRoute)}</td>
+            <td>${money(r.amount)}</td><td>${r.km}</td><td>${money(r.companyTotal)}</td><td>${money(r.driverTotal)}</td>
+            <td>
+              <button class="btn" onclick="openCard(${r.id})">Открыть</button>
+              <button class="btn" onclick="editTrip(${r.id})">Ред.</button>
+              <button class="btn danger" onclick="removeTrip(${r.id})">Удалить</button>
+            </td>
+          </tr>`).join('') || '<tr><td colspan="8">Нет данных</td></tr>';
+        }).listTrips(filters);
+      }
+
+      function openCard(id){ google.script.run.openTripCardFromClient(id); }
+      function editTrip(id){ activateView('form'); loadTripToForm(id); }
+      function removeTrip(id){
+        if(!confirm('Удалить поездку #' + id + '?')) return;
+        google.script.run.withSuccessHandler(loadTrips).deleteTrip(id);
+      }
+
+      function addRouteRow(data={}){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input class="rRoute" value="${esc(data.route||'')}"></td>
+          <td><input class="rPrice" type="number" min="0" value="${Number(data.price||0)}"></td>
+          <td><select class="rType">${state.paymentTypes.filter(Boolean).map(t=>`<option value="${t}" ${data.paymentType===t?'selected':''}>${t}</option>`).join('')}</select></td>
+          <td><button class="btn danger" onclick="this.closest('tr').remove();previewCalc();">Удалить</button></td>`;
+        document.getElementById('routesBody').appendChild(tr);
+      }
+
+      function collectForm(){
+        const routes = Array.from(document.querySelectorAll('#routesBody tr')).map(tr=>({
+          route: tr.querySelector('.rRoute').value.trim(),
+          price: Number(tr.querySelector('.rPrice').value || 0),
+          paymentType: tr.querySelector('.rType').value
+        })).filter(r=>r.route || r.price || r.paymentType);
+
+        return {
+          id: state.editTripId || '',
+          date: document.getElementById('tripDate').value,
+          mainRoute: document.getElementById('tripMainRoute').value.trim(),
+          km: Number(document.getElementById('tripKm').value || 0),
+          emptyKm: Number(document.getElementById('tripEmptyKm').value || 0),
+          comment: document.getElementById('tripComment').value.trim(),
+          routes
+        };
+      }
+
+      function previewCalc(){
+        const payload = collectForm();
+        google.script.run.withSuccessHandler(settings=>{
+          const diesel = Number(settings['Цена дизеля (руб/литр)']||0);
+          const cons = Number(settings['Расход (л/100 км)']||0);
+          const fuelPerKm = (cons * diesel)/100;
+          const revenue = payload.routes.reduce((a,r)=>a+Number(r.price||0),0);
+          const fuel = payload.km * fuelPerKm;
+          document.getElementById('preview').innerHTML =
+            `<b>Предпросмотр:</b> Выручка: ${money(revenue)}; Топливо: ${money(fuel)}; Остаток: ${money(revenue-fuel)}`;
+        }).getSettings();
+      }
+
+      function saveTrip(){
+        const payload = collectForm();
+        google.script.run
+          .withSuccessHandler(res=>{ alert('Сохранено: #' + res.tripId); state.editTripId=''; activateView('list'); })
+          .withFailureHandler(err=>alert('Ошибка: '+err.message))
+          .upsertTrip(payload);
+      }
+
+      function loadTripToForm(id){
+        google.script.run.withSuccessHandler(trip=>{
+          if(!trip) return alert('Поездка не найдена');
+          state.editTripId = String(id);
+          document.getElementById('tripDate').value = normalizeDateForInput(trip.date);
+          document.getElementById('tripMainRoute').value = trip.mainRoute || '';
+          document.getElementById('tripKm').value = trip.km || 0;
+          document.getElementById('tripEmptyKm').value = trip.emptyKm || 0;
+          document.getElementById('tripComment').value = trip.comment || '';
+          const body = document.getElementById('routesBody'); body.innerHTML = '';
+          (trip.routes || []).forEach(addRouteRow);
+          previewCalc();
+        }).getTripById(id);
+      }
+
+      function normalizeDateForInput(dateLike){
+        const dt = new Date(dateLike);
+        if (isNaN(dt.getTime())) return '';
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth()+1).padStart(2,'0');
+        const d = String(dt.getDate()).padStart(2,'0');
+        return `${y}-${m}-${d}`;
+      }
+
+      function loadDashboard(){
+        const filters = { from: document.getElementById('dFrom').value, to: document.getElementById('dTo').value };
+        google.script.run.withSuccessHandler(d=>{
+          const items = [
+            ['Количество поездок', d.tripsCount],
+            ['Общая выручка', money(d.totalRevenue)],
+            ['Прибыль компании', money(d.companyProfit)],
+            ['Выплаты водителям', money(d.driverPayout)],
+            ['Топливо', money(d.fuelCosts)],
+            ['Лизинг', money(d.leasingCosts)],
+            ['Ремонт', money(d.repairCosts)],
+            ['Налоги', money(d.taxTotal)]
+          ];
+          document.getElementById('dashboardMetrics').innerHTML = items.map(i=>`<div class="metric"><div class="k">${i[0]}</div><div class="v">${i[1]}</div></div>`).join('');
+        }).getDashboardData(filters);
+      }
+
+      function loadSettings(){
+        google.script.run.withSuccessHandler(s=>{
+          const keys = Object.keys(s);
+          document.getElementById('settingsContainer').innerHTML = keys.map(k=>`<div style="margin-bottom:10px"><label>${k}</label><input type="number" step="0.01" data-skey="${esc(k)}" value="${Number(s[k])}"></div>`).join('');
+        }).getSettings();
+      }
+
+      function saveSettings(){
+        const payload = {};
+        document.querySelectorAll('[data-skey]').forEach(i=>payload[i.dataset.skey]=Number(i.value||0));
+        google.script.run.withSuccessHandler(()=>alert('Настройки сохранены')).saveSettings(payload);
+      }
+
+      init();
+    </script>
+  </body>
+</html>
